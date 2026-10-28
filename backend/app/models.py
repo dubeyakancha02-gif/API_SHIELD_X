@@ -52,3 +52,17 @@ class StatsResponse(BaseModel):
     total_scans: int
     total_findings: int
     total_secure: int
+
+class LoginRequest(BaseModel):
+    email: str = Field(..., min_length=3, description="User email address")
+    password: str = Field(..., min_length=6, description="User password")
+
+class UserResponse(BaseModel):
+    id: int
+    email: str
+    full_name: str
+    role: str
+
+class AuthResponse(BaseModel):
+    user: UserResponse
+    message: Optional[str] = "Authentication successful"

@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from contextlib import asynccontextmanager
 from app.database import init_db
-from app.routers import apis, scans, stats
+from app.routers import apis, scans, stats, auth
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -25,16 +25,27 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Enable CORS for local development with frontend
+# CORS configuration supporting authenticated HttpOnly cookies
+ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+]
+env_origin = os.environ.get("ALLOWED_ORIGIN")
+if env_origin and env_origin not in ALLOWED_ORIGINS:
+    ALLOWED_ORIGINS.append(env_origin)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # Register endpoint routers
+app.include_router(auth.router)
 app.include_router(apis.router)
 app.include_router(scans.router)
 app.include_router(stats.router)

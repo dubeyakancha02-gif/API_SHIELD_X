@@ -2,12 +2,15 @@ import React, { useState, useEffect } from 'react';
 import Sidebar from './components/Sidebar';
 import Topbar from './components/Topbar';
 import Modal from './components/Modal';
+import Login from './components/Login';
 import Dashboard from './pages/Dashboard';
 import MyApis from './pages/MyApis';
 import SecurityScanner from './pages/SecurityScanner';
 import ScanReports from './pages/ScanReports';
 import Settings from './pages/Settings';
 import { 
+  fetchCurrentUser,
+  logout,
   fetchStats, 
   fetchApis, 
   createApi, 
@@ -23,6 +26,8 @@ import {
  * Controls active view routing, topbar actions, shared API state, and global modals.
  */
 export default function App() {
+  const [authChecking, setAuthChecking] = useState(true);
+  const [currentUser, setCurrentUser] = useState(null);
   const [activePage, setActivePage] = useState('dashboard');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
@@ -60,15 +65,57 @@ export default function App() {
       if (apisData.status === 'fulfilled') setApis(apisData.value);
       if (reportsData.status === 'fulfilled') setReports(reportsData.value);
     } catch (err) {
-      console.warn('Backend not yet reachable (Phase 2 preview mode):', err);
+      if (err.status === 401) {
+        setCurrentUser(null);
+      }
+      console.warn('Backend data load error:', err);
     } finally {
       setIsLoadingApis(false);
     }
   };
 
+  // Session Bootstrap on mount
   useEffect(() => {
-    loadInitialData();
+    let isMounted = true;
+    const bootstrapAuth = async () => {
+      try {
+        const authData = await fetchCurrentUser();
+        if (isMounted && authData && authData.user) {
+          setCurrentUser(authData.user);
+          loadInitialData();
+        }
+      } catch (err) {
+        if (isMounted) {
+          setCurrentUser(null);
+        }
+      } finally {
+        if (isMounted) {
+          setAuthChecking(false);
+        }
+      }
+    };
+
+    bootstrapAuth();
+    return () => { isMounted = false; };
   }, []);
+
+  const handleLoginSuccess = (userData) => {
+    setCurrentUser(userData);
+    loadInitialData();
+  };
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } catch (err) {
+      console.error('Logout error:', err);
+    } finally {
+      setCurrentUser(null);
+      setApis([]);
+      setReports([]);
+      setStats({ total_apis: 0, total_scans: 0, total_findings: 0, total_secure: 0 });
+    }
+  };
 
   // Handlers for Add API
   const handleOpenAddApi = () => {
@@ -153,6 +200,47 @@ export default function App() {
     setActivePage('scanner');
   };
 
+  // Guard 1: Do not expose dashboard data while session status is bootstrapping
+  if (authChecking) {
+    return (
+      <div style={{
+        minHeight: '100vh',
+        width: '100vw',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#0B1120',
+        color: '#94A3B8',
+        gap: '1rem',
+        fontFamily: 'Inter, sans-serif'
+      }}>
+        <div style={{
+          width: '42px',
+          height: '42px',
+          borderRadius: '50%',
+          border: '3px solid #1E293B',
+          borderTopColor: '#38BDF8',
+          animation: 'spin 1s linear infinite'
+        }} />
+        <p style={{ fontSize: '0.875rem', color: '#94A3B8', letterSpacing: '0.02em', margin: 0 }}>
+          Authenticating API Shield Session...
+        </p>
+        <style>{`
+          @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
+        `}</style>
+      </div>
+    );
+  }
+
+  // Guard 2: Initial screen for unauthenticated visitors is Login
+  if (!currentUser) {
+    return <Login onLoginSuccess={handleLoginSuccess} />;
+  }
+
   return (
     <div className="app-container">
       {/* Dark Navy Sidebar */}
@@ -171,7 +259,9 @@ export default function App() {
           onGoToScanner={() => {
             setSelectedApiForScan(null);
             setActivePage('scanner');
-          }} 
+          }}
+          user={currentUser}
+          onLogout={handleLogout}
         />
 
         {/* Dynamic Page Routing */}

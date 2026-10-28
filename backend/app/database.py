@@ -42,6 +42,31 @@ def init_db():
     conn = get_db_connection()
     cursor = conn.cursor()
 
+    # Table 0: Users (Authentication & Authorization)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email TEXT UNIQUE NOT NULL,
+        hashed_password TEXT NOT NULL,
+        full_name TEXT DEFAULT 'Administrator',
+        role TEXT DEFAULT 'admin',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """)
+
+    # Table 0.1: Server-Managed Sessions (HttpOnly Cookie Auth)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS sessions (
+        session_id TEXT PRIMARY KEY,
+        user_id INTEGER NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        expires_at TIMESTAMP NOT NULL,
+        ip_address TEXT,
+        user_agent TEXT,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    """)
+
     # Table 1: Registered APIs
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS apis (
@@ -86,7 +111,26 @@ def init_db():
     );
     """)
 
-    # Seed default sample API and scan report if database is empty
+    # Safe Schema Migrations: add user_id column if not exists
+    cursor.execute("PRAGMA table_info(apis);")
+    api_cols = [c["name"] for c in cursor.fetchall()]
+    if "user_id" not in api_cols:
+        cursor.execute("ALTER TABLE apis ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;")
+
+    cursor.execute("PRAGMA table_info(scan_reports);")
+    scan_cols = [c["name"] for c in cursor.fetchall()]
+    if "user_id" not in scan_cols:
+        cursor.execute("ALTER TABLE scan_reports ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;")
+
+    # Link legacy unowned records to the first administrator if users exist
+    cursor.execute("SELECT id FROM users ORDER BY id ASC LIMIT 1;")
+    first_user = cursor.fetchone()
+    if first_user:
+        admin_id = first_user["id"]
+        cursor.execute("UPDATE apis SET user_id = ? WHERE user_id IS NULL;", (admin_id,))
+        cursor.execute("UPDATE scan_reports SET user_id = ? WHERE user_id IS NULL;", (admin_id,))
+
+    # Seed default sample API and scan report if database is completely empty
     cursor.execute("SELECT COUNT(*) FROM apis")
     if cursor.fetchone()[0] == 0:
         cursor.execute(

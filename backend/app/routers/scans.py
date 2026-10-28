@@ -1,16 +1,17 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Depends, status
 from typing import List
 from app.database import get_db_connection
 from app.models import ScanRequest, ScanReportResponse, FindingModel
 from app.scanner import perform_security_scan
+from app.auth import get_current_user
 
 router = APIRouter(prefix="/api/scans", tags=["Scans"])
 
 @router.post("/run", response_model=ScanReportResponse, status_code=status.HTTP_201_CREATED)
-async def run_scan(payload: ScanRequest):
+async def run_scan(payload: ScanRequest, current_user: dict = Depends(get_current_user)):
     """
     Executes a defensive security audit against the target URL and persists
-    the report and individual findings in the SQLite database.
+    the report and individual findings in the SQLite database associated with the user.
     """
     target_url = payload.url.strip()
     if not target_url.startswith("http://") and not target_url.startswith("https://"):
@@ -30,11 +31,11 @@ async def run_scan(payload: ScanRequest):
         if api_row:
             api_name = api_row["name"]
 
-    # Insert into scan_reports table
+    # Insert into scan_reports table with authenticated user_id
     cursor.execute("""
         INSERT INTO scan_reports (
-            api_id, scanned_url, total_checks, passed_checks, warning_checks, failed_checks, overall_status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            api_id, scanned_url, total_checks, passed_checks, warning_checks, failed_checks, overall_status, user_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         payload.api_id,
         target_url,
@@ -42,7 +43,8 @@ async def run_scan(payload: ScanRequest):
         scan_result["passed_checks"],
         scan_result["warning_checks"],
         scan_result["failed_checks"],
-        scan_result["overall_status"]
+        scan_result["overall_status"],
+        current_user["id"]
     ))
     report_id = cursor.lastrowid
 
@@ -85,9 +87,9 @@ async def run_scan(payload: ScanRequest):
     }
 
 @router.get("", response_model=List[ScanReportResponse])
-def list_reports():
+def list_reports(current_user: dict = Depends(get_current_user)):
     """
-    Returns historical scan reports, joining API names where registered.
+    Returns historical scan reports for the user or legacy records, joining API names where registered.
     """
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -106,15 +108,16 @@ def list_reports():
             r.overall_status
         FROM scan_reports r
         LEFT JOIN apis a ON r.api_id = a.id
+        WHERE r.user_id = ? OR r.user_id IS NULL
         ORDER BY r.id DESC
-    """)
+    """, (current_user["id"],))
     rows = cursor.fetchall()
     conn.close()
 
     return [dict(row) for row in rows]
 
 @router.get("/{report_id}", response_model=ScanReportResponse)
-def get_report_details(report_id: int):
+def get_report_details(report_id: int, current_user: dict = Depends(get_current_user)):
     """
     Retrieves full details and all associated findings for a specific report.
     """
@@ -135,8 +138,8 @@ def get_report_details(report_id: int):
             r.overall_status
         FROM scan_reports r
         LEFT JOIN apis a ON r.api_id = a.id
-        WHERE r.id = ?
-    """, (report_id,))
+        WHERE r.id = ? AND (r.user_id = ? OR r.user_id IS NULL)
+    """, (report_id, current_user["id"]))
     report_row = cursor.fetchone()
 
     if not report_row:
@@ -155,3 +158,22 @@ def get_report_details(report_id: int):
     result = dict(report_row)
     result["findings"] = [dict(f) for f in finding_rows]
     return result
+
+@router.delete("/{report_id}", status_code=status.HTTP_200_OK)
+def delete_report(report_id: int, current_user: dict = Depends(get_current_user)):
+    """
+    Deletes a specific historical scan report.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT id FROM scan_reports WHERE id = ?", (report_id,))
+    if not cursor.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="Scan report not found")
+
+    cursor.execute("DELETE FROM scan_reports WHERE id = ?", (report_id,))
+    conn.commit()
+    conn.close()
+
+    return {"message": f"Scan report #{report_id} deleted successfully"}

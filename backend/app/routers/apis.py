@@ -1,34 +1,38 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Depends, status
 from typing import List
 from app.database import get_db_connection
 from app.models import ApiCreate, ApiUpdate, ApiResponse
+from app.auth import get_current_user
 
 router = APIRouter(prefix="/api/apis", tags=["APIs"])
 
 @router.get("", response_model=List[ApiResponse])
-def list_apis():
+def list_apis(current_user: dict = Depends(get_current_user)):
     """
-    Fetch all registered APIs from the SQLite database.
+    Fetch all registered APIs belonging to the authenticated user or legacy records.
     """
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT id, name, url, environment, description, created_at FROM apis ORDER BY id DESC")
+    cursor.execute(
+        "SELECT id, name, url, environment, description, created_at FROM apis WHERE user_id = ? OR user_id IS NULL ORDER BY id DESC",
+        (current_user["id"],)
+    )
     rows = cursor.fetchall()
     conn.close()
 
     return [dict(row) for row in rows]
 
 @router.post("", response_model=ApiResponse, status_code=status.HTTP_201_CREATED)
-def create_api(payload: ApiCreate):
+def create_api(payload: ApiCreate, current_user: dict = Depends(get_current_user)):
     """
-    Register a new API endpoint using parameterized SQL insert.
+    Register a new API endpoint associated with the authenticated user.
     """
     conn = get_db_connection()
     cursor = conn.cursor()
 
     cursor.execute(
-        "INSERT INTO apis (name, url, environment, description) VALUES (?, ?, ?, ?)",
-        (payload.name, payload.url, payload.environment, payload.description)
+        "INSERT INTO apis (name, url, environment, description, user_id) VALUES (?, ?, ?, ?, ?)",
+        (payload.name, payload.url, payload.environment, payload.description, current_user["id"])
     )
     new_id = cursor.lastrowid
     conn.commit()
@@ -40,7 +44,7 @@ def create_api(payload: ApiCreate):
     return dict(row)
 
 @router.put("/{api_id}", response_model=ApiResponse)
-def update_api(api_id: int, payload: ApiUpdate):
+def update_api(api_id: int, payload: ApiUpdate, current_user: dict = Depends(get_current_user)):
     """
     Update an existing registered API endpoint.
     """
@@ -72,7 +76,7 @@ def update_api(api_id: int, payload: ApiUpdate):
     return dict(updated_row)
 
 @router.delete("/{api_id}", status_code=status.HTTP_200_OK)
-def delete_api(api_id: int):
+def delete_api(api_id: int, current_user: dict = Depends(get_current_user)):
     """
     Remove an API endpoint and its cascade associations from SQLite.
     """

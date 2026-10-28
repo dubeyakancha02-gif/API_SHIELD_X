@@ -1,112 +1,143 @@
 /**
  * API Shield - Frontend Service Layer
- * Clean, standard fetch HTTP helper functions communicating with FastAPI backend.
+ * Clean, standard fetch HTTP helper functions with credentials and CSRF support.
  */
 
 const BASE_URL = '/api';
 
 /**
- * Fetch dashboard statistics (total APIs, scans completed, findings count)
+ * Standard request wrapper with credentials and CSRF protection headers
+ */
+async function request(path, options = {}) {
+  const url = `${BASE_URL}${path}`;
+  const headers = {
+    'X-Requested-With': 'XMLHttpRequest',
+    ...options.headers,
+  };
+
+  if (options.body && typeof options.body === 'object' && !(options.body instanceof FormData)) {
+    headers['Content-Type'] = 'application/json';
+    options.body = JSON.stringify(options.body);
+  }
+
+  const response = await fetch(url, {
+    ...options,
+    headers,
+    credentials: 'include', // Ensures HttpOnly session cookies are transmitted
+  });
+
+  if (response.status === 401) {
+    const errorData = await response.json().catch(() => ({}));
+    const err = new Error(errorData.detail || 'Authentication required');
+    err.status = 401;
+    throw err;
+  }
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    const message = errorData.detail || `Request failed with status ${response.status}`;
+    const err = new Error(message);
+    err.status = response.status;
+    throw err;
+  }
+
+  // Handle empty 204 or responses with no content
+  if (response.status === 204) {
+    return null;
+  }
+
+  return response.json();
+}
+
+/**
+ * Authenticate administrator with email and password
+ */
+export async function login(credentials) {
+  return request('/auth/login', {
+    method: 'POST',
+    body: credentials,
+  });
+}
+
+/**
+ * Invalidate server-side session and remove cookie
+ */
+export async function logout() {
+  return request('/auth/logout', {
+    method: 'POST',
+  });
+}
+
+/**
+ * Bootstrap current session and retrieve authenticated user profile
+ */
+export async function fetchCurrentUser() {
+  return request('/auth/me');
+}
+
+/**
+ * Fetch dashboard statistics
  */
 export async function fetchStats() {
-  const response = await fetch(`${BASE_URL}/stats`);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch stats: ${response.statusText}`);
-  }
-  return response.json();
+  return request('/stats');
 }
 
 /**
  * Fetch all registered APIs
  */
 export async function fetchApis() {
-  const response = await fetch(`${BASE_URL}/apis`);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch APIs: ${response.statusText}`);
-  }
-  return response.json();
+  return request('/apis');
 }
 
 /**
  * Register a new API endpoint
  */
 export async function createApi(apiData) {
-  const response = await fetch(`${BASE_URL}/apis`, {
+  return request('/apis', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(apiData),
+    body: apiData,
   });
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.detail || 'Failed to save API');
-  }
-  return response.json();
 }
 
 /**
  * Update an existing API endpoint
  */
 export async function updateApi(id, apiData) {
-  const response = await fetch(`${BASE_URL}/apis/${id}`, {
+  return request(`/apis/${id}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(apiData),
+    body: apiData,
   });
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.detail || 'Failed to update API');
-  }
-  return response.json();
 }
 
 /**
  * Delete an API endpoint from database
  */
 export async function deleteApi(id) {
-  const response = await fetch(`${BASE_URL}/apis/${id}`, {
+  return request(`/apis/${id}`, {
     method: 'DELETE',
   });
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.detail || 'Failed to delete API');
-  }
-  return response.json();
 }
 
 /**
  * Execute a passive security scan against an API endpoint
  */
 export async function executeScan(scanData) {
-  const response = await fetch(`${BASE_URL}/scans/run`, {
+  return request('/scans/run', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(scanData),
+    body: scanData,
   });
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.detail || 'Failed to complete security scan');
-  }
-  return response.json();
 }
 
 /**
  * Fetch all historical scan reports
  */
 export async function fetchReports() {
-  const response = await fetch(`${BASE_URL}/scans`);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch scan reports: ${response.statusText}`);
-  }
-  return response.json();
+  return request('/scans');
 }
 
 /**
  * Fetch detailed findings for a specific scan report
  */
 export async function fetchReportDetails(reportId) {
-  const response = await fetch(`${BASE_URL}/scans/${reportId}`);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch report details: ${response.statusText}`);
-  }
-  return response.json();
+  return request(`/scans/${reportId}`);
 }
