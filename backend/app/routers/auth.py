@@ -89,3 +89,4 @@ def logout(request: Request, response: Response):
 
     response.delete_cookie(key=SESSION_COOKIE_NAME, path="/")
     return {"message": "Logged out successfully"}
+

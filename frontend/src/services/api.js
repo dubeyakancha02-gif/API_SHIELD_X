@@ -20,11 +20,25 @@ async function request(path, options = {}) {
     options.body = JSON.stringify(options.body);
   }
 
-  const response = await fetch(url, {
-    ...options,
-    headers,
-    credentials: 'include', // Ensures HttpOnly session cookies are transmitted
-  });
+  let response;
+  try {
+    response = await fetch(url, {
+      ...options,
+      headers,
+      credentials: 'include', // Ensures HttpOnly session cookies are transmitted
+    });
+  } catch (networkErr) {
+    if (networkErr.name === 'AbortError') {
+      const err = new Error('Session check timed out');
+      err.name = 'AbortError';
+      err.status = 408;
+      throw err;
+    }
+    const err = new Error('Cannot connect to API Shield backend. Please ensure FastAPI is running on port 8000.');
+    err.status = 503;
+    err.isNetworkError = true;
+    throw err;
+  }
 
   if (response.status === 401) {
     const errorData = await response.json().catch(() => ({}));
@@ -71,8 +85,8 @@ export async function logout() {
 /**
  * Bootstrap current session and retrieve authenticated user profile
  */
-export async function fetchCurrentUser() {
-  return request('/auth/me');
+export async function fetchCurrentUser(options = {}) {
+  return request('/auth/me', options);
 }
 
 /**

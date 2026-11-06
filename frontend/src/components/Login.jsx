@@ -7,7 +7,7 @@ import { login } from '../services/api';
  * Initial screen for unauthenticated visitors. Provides responsive visual styling,
  * real-time validation, password toggle, rate-limit feedback, and server authentication.
  */
-export default function Login({ onLoginSuccess }) {
+export default function Login({ onLoginSuccess, backendNotice, isCheckingSession }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -122,6 +122,46 @@ export default function Login({ onLoginSuccess }) {
 
         {/* Login Form Body */}
         <div style={{ padding: '2rem' }}>
+          {backendNotice && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: '0.75rem',
+              backgroundColor: '#FFFBEB',
+              border: '1px solid #FDE68A',
+              color: '#92400E',
+              padding: '0.875rem 1rem',
+              borderRadius: '8px',
+              fontSize: '0.8125rem',
+              marginBottom: '1.25rem',
+              lineHeight: 1.4
+            }}>
+              <AlertCircle size={18} style={{ flexShrink: 0, marginTop: '2px', color: '#D97706' }} />
+              <div>
+                <strong>Server Notice:</strong> {backendNotice}
+              </div>
+            </div>
+          )}
+
+          {isCheckingSession && !backendNotice && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '0.5rem',
+              backgroundColor: '#F0F9FF',
+              border: '1px solid #BAE6FD',
+              color: '#0369A1',
+              padding: '0.5rem 0.75rem',
+              borderRadius: '6px',
+              fontSize: '0.75rem',
+              marginBottom: '1.25rem'
+            }}>
+              <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />
+              <span>Verifying existing session...</span>
+            </div>
+          )}
+
           {errorMessage && (
             <div style={{
               display: 'flex',
@@ -325,3 +365,4 @@ export default function Login({ onLoginSuccess }) {
     </div>
   );
 }
+

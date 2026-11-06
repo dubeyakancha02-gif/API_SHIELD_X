@@ -28,6 +28,7 @@ import {
 export default function App() {
   const [authChecking, setAuthChecking] = useState(true);
   const [currentUser, setCurrentUser] = useState(null);
+  const [backendNotice, setBackendNotice] = useState(null);
   const [activePage, setActivePage] = useState('dashboard');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
@@ -74,21 +75,29 @@ export default function App() {
     }
   };
 
-  // Session Bootstrap on mount
+  // Session Bootstrap on mount with strict timeout and offline detection
   useEffect(() => {
     let isMounted = true;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 1800);
+
     const bootstrapAuth = async () => {
       try {
-        const authData = await fetchCurrentUser();
+        const authData = await fetchCurrentUser({ signal: controller.signal });
         if (isMounted && authData && authData.user) {
           setCurrentUser(authData.user);
+          setBackendNotice(null);
           loadInitialData();
         }
       } catch (err) {
         if (isMounted) {
           setCurrentUser(null);
+          if (err.isNetworkError || err.status === 503 || err.status === 502 || err.status === 504) {
+            setBackendNotice('FastAPI backend is offline on port 8000. Start it in the backend directory.');
+          }
         }
       } finally {
+        clearTimeout(timeoutId);
         if (isMounted) {
           setAuthChecking(false);
         }
@@ -96,11 +105,16 @@ export default function App() {
     };
 
     bootstrapAuth();
-    return () => { isMounted = false; };
+    return () => {
+      isMounted = false;
+      clearTimeout(timeoutId);
+      controller.abort();
+    };
   }, []);
 
   const handleLoginSuccess = (userData) => {
     setCurrentUser(userData);
+    setBackendNotice(null);
     loadInitialData();
   };
 
@@ -200,45 +214,15 @@ export default function App() {
     setActivePage('scanner');
   };
 
-  // Guard 1: Do not expose dashboard data while session status is bootstrapping
-  if (authChecking) {
-    return (
-      <div style={{
-        minHeight: '100vh',
-        width: '100vw',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: '#0B1120',
-        color: '#94A3B8',
-        gap: '1rem',
-        fontFamily: 'Inter, sans-serif'
-      }}>
-        <div style={{
-          width: '42px',
-          height: '42px',
-          borderRadius: '50%',
-          border: '3px solid #1E293B',
-          borderTopColor: '#38BDF8',
-          animation: 'spin 1s linear infinite'
-        }} />
-        <p style={{ fontSize: '0.875rem', color: '#94A3B8', letterSpacing: '0.02em', margin: 0 }}>
-          Authenticating API Shield Session...
-        </p>
-        <style>{`
-          @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-          }
-        `}</style>
-      </div>
-    );
-  }
-
-  // Guard 2: Initial screen for unauthenticated visitors is Login
+  // Unauthenticated visitors immediately see the Login portal (never blocked by splash loader)
   if (!currentUser) {
-    return <Login onLoginSuccess={handleLoginSuccess} />;
+    return (
+      <Login 
+        onLoginSuccess={handleLoginSuccess} 
+        backendNotice={backendNotice} 
+        isCheckingSession={authChecking} 
+      />
+    );
   }
 
   return (

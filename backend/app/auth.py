@@ -156,3 +156,4 @@ async def get_current_user(request: Request) -> dict:
             )
 
     return user
+
